@@ -1,4 +1,4 @@
-# Easy stremio on Docker
+# Easy stremio on Docker (Tailscale Fork)
 
 ## Introduction
 
@@ -6,7 +6,12 @@
 
 The Docker images in this repository bundle stremio-server, ffmpeg and web player for you, ready to use in a small Alpine image.
 
-I built this to run Stremio on my Raspberry Pi 5 and couldn't find something that has both player and server but also the official image seemed too big but also lacks the Web Player and doesn't work out of the box if no HTTPS is configured.
+This is a fork of [tsaridas/stremio-docker](https://github.com/tsaridas/stremio-docker) with enhancements for Tailscale integration:
+- **Tailscale HTTPS Support:** Full support for Tailscale certificates with EC private key compatibility
+- **Streaming Server Accessibility:** Nginx configuration improvements to make the streaming server accessible at root path for external clients
+- **Custom Nginx Mounting:** Ability to mount custom nginx configurations from the host
+
+> **Note:** This fork maintains compatibility with the original while adding Tailscale-specific features. See [Scenario 5](#scenario-5-https-with-tailscale-this-fork) for Tailscale setup instructions.
 
 ## Features
 
@@ -172,6 +177,50 @@ docker run -d \
   tsaridas/stremio-docker:latest
 ```
 The WebPlayer will be available at `https://your.custom.domain:8080`.
+
+### Scenario 5: HTTPS with Tailscale (This Fork)
+
+This fork includes enhancements for using Stremio with Tailscale, providing secure access via Tailscale's MagicDNS and HTTPS certificates.
+
+**Features:**
+- Tailscale certificate support (EC private key compatible)
+- Streaming server accessible at root path via nginx fallback
+- Custom nginx configuration mounted from host
+- Hardware acceleration support
+
+**Setup Steps:**
+
+1. **Generate Tailscale Certificate:**
+   ```bash
+   tailscale cert --cert-file /tmp/your-hostname-cert.pem --key-file /tmp/your-hostname-key.pem your-hostname.tailXXXXX.ts.net
+   ```
+
+2. **Combine Certificate and Key:**
+   ```bash
+   cat /tmp/your-hostname-cert.pem /tmp/your-hostname-key.pem > stremio-data/stremio-cert.pem
+   chmod 640 stremio-data/stremio-cert.pem
+   ```
+
+3. **Update `compose.yaml`:**
+   - Set `DOMAIN` to your Tailscale FQDN (e.g., `neo-bravo.tail2cdc32.ts.net`)
+   - Set `CERT_FILE` to `stremio-cert.pem`
+   - Configure port binding to your Tailscale IP (e.g., `100.68.64.99:8080:8080`)
+   - Mount nginx config: `./nginx/https.conf:/etc/nginx/https.conf:ro`
+   - Add hardware acceleration device if needed: `/dev/dri:/dev/dri`
+
+4. **Run the container:**
+   ```bash
+   docker compose up -d
+   ```
+
+**Key Changes in This Fork:**
+- **Nginx Configuration:** Modified to make streaming server accessible at root path by using `@backend` fallback when static files aren't found
+- **Certificate Handling:** Supports Tailscale's EC private keys (converted to PKCS8 format)
+- **Streaming Server Accessibility:** The streaming server API is now accessible at `https://your-tailscale-fqdn:8080/` even when accessing from external clients
+
+**Access:**
+- Web UI: `https://your-hostname.tailXXXXX.ts.net:8080`
+- Streaming Server: `https://your-hostname.tailXXXXX.ts.net:8080` (accessible for Stremio clients)
 
 ## Updating
 

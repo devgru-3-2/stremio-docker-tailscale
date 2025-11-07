@@ -1,12 +1,17 @@
 services:
   stremio:
-    image: tsaridas/stremio-docker:latest
+    container_name: stremio-docker
+    image: tsaridas/stremio-docker:v1.2.5
     restart: unless-stopped
     environment:
       NO_CORS: 1
       AUTO_SERVER_URL: 1
-      #IPADDRESS: 192.168.1.10 # Setup your ip address here
+      DOMAIN: "neo-bravo.tail2cdc32.ts.net"
+      CERT_FILE: "stremio-cert.pem"
     ports:
-      - "8080:8080"
+      - "100.68.64.99:8080:8080"
     volumes:
       - "./stremio-data:/root/.stremio-server"
+      - "./nginx/https.conf:/etc/nginx/https.conf:ro"
+    devices:
+      - "/dev/dri:/dev/dri"
