@@ -202,9 +202,9 @@ This fork includes enhancements for using Stremio with Tailscale, providing secu
    ```
 
 3. **Update `compose.yaml`:**
-   - Set `DOMAIN` to your Tailscale FQDN (e.g., `neo-bravo.tail2cdc32.ts.net`)
+   - Set `DOMAIN` to your Tailscale FQDN (e.g., `abc.tailxyz123.ts.net`)
    - Set `CERT_FILE` to `stremio-cert.pem`
-   - Configure port binding to your Tailscale IP (e.g., `100.68.64.99:8080:8080`)
+   - Configure port binding to your Tailscale IP (e.g., `100.xx.xx.xx:8080:8080`)
    - Mount nginx config: `./nginx/https.conf:/etc/nginx/https.conf:ro`
    - Add hardware acceleration device if needed: `/dev/dri:/dev/dri`
 
