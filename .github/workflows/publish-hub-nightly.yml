@@ -1,0 +1,289 @@
+name: DockerHub-Nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
+
+env:
+  TMP_LOCAL_IMAGE: localhost:5000/${{ github.repository }}
+  REGISTRY_IMAGE: ${{ github.repository }}
+  REGISTRY_TAG: nightly
+  VERSION: nightly
+  BRANCH: development
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm/v6
+          - linux/arm/v7
+          - linux/arm64
+          - linux/ppc64le
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Prepare
+        run: |
+          mkdir -p /tmp/images
+          platform=${{ matrix.platform }}
+          echo "TARFILE=${platform//\//-}.tar" >> $GITHUB_ENV
+          echo "TAG=${{ env.TMP_LOCAL_IMAGE }}:${platform//\//-}" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            BRANCH=${{ env.BRANCH }}
+            VERSION=${{ env.VERSION }}
+          tags: ${{ env.TAG }}
+          outputs: type=docker,dest=/tmp/images/${{ env.TARFILE }}
+
+      - name: Load images
+        run: |
+          for image in /tmp/images/*.tar; do
+            docker load -i $image
+          done
+        
+      - name: Setup environment
+        run: |
+          npm install @playwright/test
+          npx playwright install --with-deps
+          docker network create --subnet=172.18.0.0/24 custom_network
+          echo "172.18.0.3 172-18-0-3.519b6502d940.stremio.rocks" | sudo tee -a /etc/hosts
+
+      - name: Run Docker Container and Test (1st run)
+        run: |
+          platform=${{ matrix.platform }}
+          docker run -d --network custom_network --ip 172.18.0.3 -e NO_CORS=1 -e CASTING_DISABLED=1 --platform ${{ matrix.platform }} ${{ env.TMP_LOCAL_IMAGE }}:${platform//\//-}
+          
+          cd tests
+          sleep 15 # wait for server to startup
+
+          CONTAINER_ID=$(docker ps -a | grep stremio | awk '{print $1}')
+          docker exec "$CONTAINER_ID" cat /etc/nginx/http.d/default.conf
+          docker exec "$CONTAINER_ID" ps aux
+          docker logs "$CONTAINER_ID"
+
+          npx playwright test settings.spec --timeout=60000 || (
+            docker ps -a;
+            docker logs "$CONTAINER_ID";
+            exit 1;
+          )
+          docker logs "$CONTAINER_ID";
+          docker stop "$CONTAINER_ID"
+          docker rm "$CONTAINER_ID"
+
+      - name: Run Docker Container and Test (with http 11470)
+        run: |
+          platform=${{ matrix.platform }}
+          docker run -d --network custom_network --ip 172.18.0.3 -e NO_CORS=1 -e CASTING_DISABLED=1 --platform ${{ matrix.platform }} ${{ env.TMP_LOCAL_IMAGE }}:${platform//\//-}
+          
+          cd tests
+          sleep 15 # wait for server to startup
+
+          CONTAINER_ID=$(docker ps -a | grep stremio | awk '{print $1}')
+          docker exec "$CONTAINER_ID" cat /etc/nginx/http.d/default.conf
+          docker exec "$CONTAINER_ID" ps aux
+          docker logs "$CONTAINER_ID"
+
+          SERVER_URL="http://172.18.0.3:11470" npx playwright test settings.spec --timeout=60000 || (
+            docker ps -a;
+            docker logs "$CONTAINER_ID";
+            exit 1;
+          )
+          docker logs "$CONTAINER_ID";
+          docker stop "$CONTAINER_ID"
+          docker rm "$CONTAINER_ID"
+
+      - name: Run Docker Container and Test (with IPADDRESS)
+        run: |
+          platform=${{ matrix.platform }}
+          docker run -d --network custom_network --ip 172.18.0.3 -e CASTING_DISABLED=1 -e IPADDRESS=172.18.0.3 -v ~/.stremio-server:/root/.stremio-server --platform ${{ matrix.platform }} ${{ env.TMP_LOCAL_IMAGE }}:${platform//\//-}
+          
+          cd tests
+          sleep 60 # wait longer for server to startup
+
+          CONTAINER_ID=$(docker ps -a | grep stremio | awk '{print $1}')
+          docker exec "$CONTAINER_ID" cat /etc/nginx/http.d/default.conf
+          docker exec "$CONTAINER_ID" ps aux
+          docker logs "$CONTAINER_ID"
+
+          WEB_URL="https://172-18-0-3.519b6502d940.stremio.rocks:8080" SERVER_URL="https://172-18-0-3.519b6502d940.stremio.rocks:8080" npx playwright test settings.spec --timeout=60000 || (
+            docker ps -a;
+            docker logs "$CONTAINER_ID";
+            exit 1;
+          )
+          echo "--------------------------------"
+          WEB_URL="https://172-18-0-3.519b6502d940.stremio.rocks:8080" SERVER_URL="https://172-18-0-3.519b6502d940.stremio.rocks:12470" npx playwright test settings.spec --timeout=60000 || (
+            docker ps -a;
+            docker logs "$CONTAINER_ID";
+            exit 1;
+          )
+          echo "--------------------------------"
+          docker logs "$CONTAINER_ID"
+          docker stop "$CONTAINER_ID"
+          docker rm "$CONTAINER_ID"
+
+      - name: Run Docker Container and Test (with SERVER_URL)
+        run: |
+          platform=${{ matrix.platform }}
+          docker run -d --network custom_network --ip 172.18.0.3 -e NO_CORS=1 -e CASTING_DISABLED=1 -e SERVER_URL="http://172.18.0.3:8080/" --platform ${{ matrix.platform }} ${{ env.TMP_LOCAL_IMAGE }}:${platform//\//-}
+          
+          cd tests
+          sleep 15 # wait for server to startup
+          
+          CONTAINER_ID=$(docker ps -a | grep stremio | awk '{print $1}')
+          docker exec "$CONTAINER_ID" cat /etc/nginx/http.d/default.conf
+          docker exec "$CONTAINER_ID" ps aux
+          docker logs "$CONTAINER_ID"
+
+          npx playwright test settings_server_url.spec --timeout=60000 || (
+            docker ps -a;
+            docker logs "$CONTAINER_ID";
+            exit 1;
+          )
+          docker logs "$CONTAINER_ID";
+          docker stop "$CONTAINER_ID"
+          docker rm "$CONTAINER_ID"
+  
+      - name: Run Docker Container and Test (with AUTO_SERVER_URL)
+        run: |
+          platform=${{ matrix.platform }}
+          docker run -d --network custom_network --ip 172.18.0.3 -e NO_CORS=1 -e CASTING_DISABLED=1 -e AUTO_SERVER_URL=1 --platform ${{ matrix.platform }} ${{ env.TMP_LOCAL_IMAGE }}:${platform//\//-}
+          
+          cd tests
+          sleep 15 # wait for server to startup
+              
+          CONTAINER_ID=$(docker ps -a | grep stremio | awk '{print $1}')
+          docker exec "$CONTAINER_ID" cat /etc/nginx/http.d/default.conf
+          docker exec "$CONTAINER_ID" ps aux
+          docker logs "$CONTAINER_ID"
+    
+          npx playwright test settings_server_url.spec --timeout=60000 || (
+            docker ps -a;
+            docker logs "$CONTAINER_ID";
+            exit 1;
+          )
+          docker logs "$CONTAINER_ID";
+          docker stop "$CONTAINER_ID"
+          docker rm "$CONTAINER_ID"
+
+      - name: Run Docker Container and Test (with WEBUI_LOCATION and WEBUI_INTERNAL_PORT)
+        run: |
+          platform=${{ matrix.platform }}
+          docker run -d --network custom_network --ip 172.18.0.3 -e NO_CORS=1 -e CASTING_DISABLED=1 -e WEBUI_INTERNAL_PORT=9090 --platform ${{ matrix.platform }} ${{ env.TMP_LOCAL_IMAGE }}:${platform//\//-}
+          
+          cd tests
+          sleep 15 # wait for server to startup
+
+          CONTAINER_ID=$(docker ps -a | grep stremio | awk '{print $1}')
+          docker exec "$CONTAINER_ID" cat /etc/nginx/http.d/default.conf
+          docker exec "$CONTAINER_ID" ps aux
+          docker logs "$CONTAINER_ID"
+
+          WEB_URL="http://172.18.0.3:9090" SERVER_URL="http://172.18.0.3:9090" npx playwright test settings.spec --timeout=60000 || (
+            docker ps -a;
+            docker logs "$CONTAINER_ID";
+            exit 1;
+          )
+            
+          docker logs "$CONTAINER_ID";
+          docker stop "$CONTAINER_ID"
+          docker rm "$CONTAINER_ID"
+
+      - name: Run Docker Container and Test (with basic auth)
+        run: |
+          platform=${{ matrix.platform }}
+          docker run -d --network custom_network --ip 172.18.0.3 -e NO_CORS=1 -e USERNAME=default_user -e PASSWORD=default_pass -e CASTING_DISABLED=1 --platform ${{ matrix.platform }} ${{ env.TMP_LOCAL_IMAGE }}:${platform//\//-}
+          
+          cd tests
+          sleep 15 # wait for server to startup
+          
+          CONTAINER_ID=$(docker ps -a | grep stremio | awk '{print $1}')
+          docker exec "$CONTAINER_ID" cat /etc/nginx/http.d/default.conf
+          docker exec "$CONTAINER_ID" ps aux
+          docker logs "$CONTAINER_ID"
+  
+          AUTH=true npx playwright test settings.spec --timeout=60000 || (
+            docker ps -a;
+            docker logs "$CONTAINER_ID";
+            exit 1;
+          )
+                
+          docker logs "$CONTAINER_ID";
+          docker stop "$CONTAINER_ID"
+          docker rm "$CONTAINER_ID"
+
+      - name: Upload image
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-${{ strategy.job-index }}
+          path: /tmp/images/${{ env.TARFILE }}
+          if-no-files-found: error
+          retention-days: 1
+
+  push:
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+      - name: Download images
+        uses: actions/download-artifact@v4
+        with:
+          pattern: images-*
+          merge-multiple: true
+          path: /tmp/images
+      - name: Load images
+        run: |
+          for image in /tmp/images/*.tar; do
+            docker load -i $image
+          done
+      - name: Push images to local registry
+        run: |
+          docker push -a ${{ env.TMP_LOCAL_IMAGE }}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PASS }}
+      - name: Create manifest list and push
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i/3: Creating manifest list and pushing..."
+            if docker buildx imagetools create -t ${{ env.REGISTRY_IMAGE }}:${{ env.REGISTRY_TAG }} \
+              $(docker image ls --format '{{.Repository}}:{{.Tag}}' '${{ env.TMP_LOCAL_IMAGE }}' | tr '\n' ' '); then
+              echo "Push successful on attempt $i"
+              break
+            else
+              if [ $i -lt 3 ]; then
+                wait_time=$((30 * i))
+                echo "Attempt $i failed, waiting $wait_time seconds before retry..."
+                sleep $wait_time
+              else
+                echo "All 3 attempts failed"
+                exit 1
+              fi
+            fi
+          done
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ env.REGISTRY_TAG }}

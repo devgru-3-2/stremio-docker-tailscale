@@ -1,0 +1,19 @@
+services:
+  stremio:
+    container_name: stremio-docker
+    image: tsaridas/stremio-docker:latest
+    restart: unless-stopped
+    environment:
+      NO_CORS: 1
+      AUTO_SERVER_URL: 1
+      DOMAIN: "YOUR_HOST.example-tailnet.ts.net:8080"
+      CERT_FILE: "stremio-cert.pem"
+    ports:
+      - "100.64.0.0:8080:8080"
+    volumes:
+      - "./stremio-data:/root/.stremio-server"
+      - "./nginx/https.conf:/etc/nginx/https.conf:ro"
+      - "./nginx/nginx.conf:/etc/nginx/nginx.conf:ro"
+      - "./restart_if_idle.sh:/srv/stremio-server/restart_if_idle.sh"
+    devices:
+      - "/dev/dri:/dev/dri"

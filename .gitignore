@@ -1,0 +1,23 @@
+*.swp
+node_modules/
+
+# Sensitive certificate files
+*.pem
+*.crt
+*.key
+*.cert
+
+# Data directories
+stremio-data/
+*.log
+*.txt
+
+# Temporary scripts and test files
+*-fix.sh
+*-setup.sh
+*-add-*.sh
+extract_*.sh
+full_logcat_*.txt
+
+# Local scrub log (never commit - references personal identifiers)
+docs/PRIVATE_SCRUB_LOG.md
