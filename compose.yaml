@@ -3,6 +3,8 @@ services:
     container_name: stremio-docker
     image: tsaridas/stremio-docker:latest
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       NO_CORS: 1
       AUTO_SERVER_URL: 1
